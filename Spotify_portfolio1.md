@@ -1,0 +1,504 @@
+Spotify Analyse des chansons
+================
+eunicedomingos
+
+# Introduction
+
+La plateforme Spotify met à disposition de nombreuses caractéristiques
+musicales permettant de décrire les chansons au-delà de leur genre. Ce
+projet s’inscrit dans une démarche d’analyse de données visant à
+comprendre dans quelle mesure ces caractéristiques sont associées à la
+popularité des titres entre 2010 et 2019.
+
+Le projet a commme objectif de décrire les principales caractéristiques
+des chansons, analyser leur relation avec la popularité, ainsi que
+construire un modèle simple de prédiction de la popularité.
+
+Ce document présente dans un premier temps une analyse exploratoire des
+données (statistiques descriptives et visualisations), puis une
+modélisation par régression linéaire permettant d’interpréter les effets
+des variables musicales sur la popularité.
+
+# 1-Les données
+
+## 1.1- Source et description
+
+Les données proviennent d’un dataset Spotify issu de DataCamp et
+couvrentla période 2010–2019,mesurée à partir des classements Billboard.
+L’échantillon contient environ 600 chansons.
+
+## 1.2-Dictionnaire des variable
+
+Notre dataset est contitué de 14 variables.
+
+Variables numériques
+
+bpm : Battements par minute : le tempo de la chanson nrgy : L’énergie de
+la chanson : des valeurs plus élevées signifient plus énergique (rapide,
+fort) dnce : La danseabilité de la chason : des valeurs plus élevées
+signifient qu’il est plus facile de danser dB : Décibel : le volume de
+la chanson live : live-ness (probabilité que la chanson ait été
+enregistrée avec un public en direct) val : valence : des valeurs plus
+élevées signifient un son plus positif dur : La durée de la chason acous
+: L’acoustisme de la chanson : probabilité que la chanson soit
+acoustique
+
+Variables catégorielles
+
+spch : speechiness (des valeurs plus élevées signifient plus de mots
+parlés) genre : Le genre de la chason genre_reduit (one-hot encodé)
+
+Variables à exclure
+
+year (numérique ou catégorielle selon usage) : L’année où la chanson
+était dans le panneau d’affichage title : Le titre de la chanson artist:
+Le titre de la chason
+
+## 1.3-Importation des données
+
+Les données utilisées proviennent d’un dataset Spotify issu de DataCamp.
+Elles regroupent des chansons classées entre 2010 et 2019 avec
+différentes caractéristiques musicales.
+
+``` r
+#Importation des données
+
+dataM <- read.csv(
+  "DATA/datalab_export_2025-12-09 19_53_06.csv",
+  stringsAsFactors = FALSE)
+```
+
+# 2-Nettotage et preparation des donées
+
+Cette étape vise à préparer les données pour l’analyse et la
+modélisation, en traitant les valeurs manquantes, et en simplifiant
+certaines variables, afin d’éviter les erreurs dans les modèles et les
+graphiques.
+
+``` r
+#Verification des données manquantes et doublons
+colSums(is.na(dataM)) 
+```
+
+    ##     index     title    artist top.genre      year       bpm      nrgy      dnce 
+    ##         0         0         0         0         0         0         0         0 
+    ##        dB      live       val       dur     acous      spch       pop 
+    ##         0         0         0         0         0         0         0
+
+``` r
+sum(duplicated(dataM))
+```
+
+    ## [1] 0
+
+``` r
+# Réduction à top 10 genres + "Autre"
+top10 <- names(sort(table(dataM$`top.genre`), decreasing = TRUE))[1:10]
+dataM$genre_reduit <- ifelse(dataM$`top.genre` %in% top10, dataM$`top.genre`, "Autre")
+
+dataM$genre_reduit[is.na(dataM$genre_reduit)] <- "Autre"
+sum(is.na(dataM$genre_reduit))
+```
+
+    ## [1] 0
+
+Les genres ont été regroupés afin de limiter le nombre de variables
+catégorielles dans le modèle. Les dix genres les plus fréquents ont été
+conservés, les autres étant regroupés dans une catégorie « Autre ».
+Cette approche permet de réduire la complexité du modèle tout en
+conservant l’information principale.
+
+``` r
+# One-hot encoding
+dataM <- cbind(dataM, model.matrix(~ genre_reduit - 1, data = dataM))
+
+# Supprimer la colonne originale
+dataM$`top.genre` <- NULL
+```
+
+## 2.1-Données final utilisé pour l’analyse
+
+Pour notre analyse et la construction de modèles prédictifs, nous avons
+sélectionné les variables explicatives selon trois critères :
+
+Pertinence métier : Les variables ayant un impact attendu sur la
+popularité des chansons (exemple la danseabilité, l’énergie, etc).
+Corrélation avec la popularité : Les variables numériques montrant une
+relation significative avec la popularité. Réduction de la redondance :
+éviter les variables fortement corrélées entre elles pour simplifier les
+modèles.
+
+``` r
+#Variables numériques retenus
+library(modelsummary)
+library(ggplot2)
+vars_Musical1 <- c("pop", "dnce", "nrgy", "bpm", "val", "dur", "acous", "spch")
+```
+
+# 3-Analyse exploratoire
+
+## 3.1-Statistiques descriptives
+
+``` r
+# Statistiques descriptives 
+datasummary_skim(
+  dataM[vars_Musical1],
+  histogram = FALSE
+)
+```
+
+|       | Unique | Missing Pct. | Mean  | SD   | Min   | Median | Max   |
+|-------|--------|--------------|-------|------|-------|--------|-------|
+| pop   | 71     | 0            | 66.5  | 14.5 | 0.0   | 69.0   | 99.0  |
+| dnce  | 70     | 0            | 64.4  | 13.4 | 0.0   | 66.0   | 97.0  |
+| nrgy  | 77     | 0            | 70.5  | 16.3 | 0.0   | 74.0   | 98.0  |
+| bpm   | 104    | 0            | 118.5 | 24.8 | 0.0   | 120.0  | 206.0 |
+| val   | 94     | 0            | 52.2  | 22.5 | 0.0   | 52.0   | 98.0  |
+| dur   | 144    | 0            | 224.7 | 34.1 | 134.0 | 221.0  | 424.0 |
+| acous | 75     | 0            | 14.3  | 20.8 | 0.0   | 6.0    | 99.0  |
+| spch  | 39     | 0            | 8.4   | 7.5  | 0.0   | 5.0    | 48.0  |
+
+De manière générale, l’analyse descriptive montre que la base de données
+est propre et bien structurée, sans valeurs manquantes.
+
+Les titres étudiés reflètent les tendances musicales dominantes sur
+Spotify, avec une forte présence de morceaux populaires, énergiques et
+dansants. Certaines variables, telles que la valence, la durée ou
+l’acousticité, présentent une variabilité marquée, suggérant un
+potentiel explicatif intéressant pour l’étude de la popularité.
+
+Ces résultats justifient la poursuite de l’analyse à travers l’étude des
+corrélations et la construction de modèles prédictifs simples.
+
+## 3.2-Visualisations clés
+
+### 3.2.1- Histogramme de la distribution par genre
+
+``` r
+#Distribution des genres
+dataM %>%
+count(genre_reduit) %>%
+ggplot(aes(x=reorder(genre_reduit, n), y=n, fill=genre_reduit)) +
+geom_bar(stat="identity") +
+coord_flip() +
+labs(title="Nombre de chansons par genre", x="Genre", y="Nombre de chansons") +
+theme_minimal()
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+Bien que certains genres soient fortement représentés, cela ne signifie
+pas nécessairement qu’ils obtiennent une popularité moyenne plus élevée.
+La distribution par genre montre que certains genres musicaux dominent
+largement les classements Billboard entre 2010 et 2019. Cette
+sur-représentation reflète les tendances du marché musical sur la
+période étudiée.
+
+### 3.2.2- Popularité moyenne par genre
+
+``` r
+#Popularité moyenne par genre
+dataM %>%
+  group_by(genre_reduit) %>%
+  summarise(
+    pop_moyenne = mean(pop),
+    n = n()
+  ) %>%
+  arrange(desc(pop_moyenne))
+```
+
+    ## # A tibble: 11 × 3
+    ##    genre_reduit              pop_moyenne     n
+    ##    <chr>                           <dbl> <int>
+    ##  1 canadian contemporary r&b        77.7     9
+    ##  2 electropop                       77.5    13
+    ##  3 pop                              74.8    60
+    ##  4 canadian pop                     72.2    34
+    ##  5 boy band                         69.7    15
+    ##  6 big room                         65.6    10
+    ##  7 barbadian pop                    65.4    15
+    ##  8 Autre                            65.1   100
+    ##  9 dance pop                        64.4   327
+    ## 10 british soul                     62.2    11
+    ## 11 neo mellow                       60       9
+
+La popularité des titres sur Spotify n’est pas une mesure fixe mais un
+indicateur relatif, dépendant des écoutes récentes et du contexte de
+diffusion.
+
+Ainsi, son évolution dans le temps peut refléter à la fois des
+changements dans les pratiques d’écoute, une mise en avant algorithmique
+différente, ainsi qu’un biais de sélection des titres les plus récents
+ou les plus écoutés au sein de l’échantillon.
+
+``` r
+# Boxplot pop ~ genre
+ggplot(dataM, aes(x = genre_reduit, y = pop)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(
+    title = "Distribution de la popularité par genre",
+    x = "Genre",
+    y = "Popularité"
+  ) +
+  theme_light()
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
+La distribution de la popularité varie selon les genres, avec des
+niveaux médians plus élevés pour la pop et l’electropop.
+
+La dance pop se distingue par une forte dispersion, tandis que certains
+genres présentent une popularité plus homogène. Ces observations
+suggèrent que le genre joue un rôle dans la popularité des titres, sans
+être un facteur déterminant à lui seul.
+
+Les analyses précédentes ont permis de mettre en évidence des
+différences de popularité selon les genres. Nous cherchons maintenant à
+déterminer si certaines caractéristiques musicales sont statistiquement
+associées à la popularité des titres.
+
+### 3.2.2- Popularité moyenne par année
+
+``` r
+#Graphique de l'évolution de la popularité moyenne par année
+dataM %>%
+  group_by(year) %>%
+  summarise(pop_moyenne = mean(pop)) %>%
+  ggplot(aes(x=year, y=pop_moyenne)) +
+  geom_line() +
+  geom_point() +
+  labs(title="Évolution de la popularité moyenne par année")
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-9-1.png)<!-- -->
+
+La popularité moyenne reste globalement stable jusqu’en 2016, avant
+d’augmenter fortement à partir de 2017. L’augmentation de la popularité
+moyenne observée en fin de période peut s’expliquer par une
+concentration élevé de titres récents et fortement diffusés, plutôt que
+par une évolution des caractéristiques musicales propres aux titres.
+
+## 3.3-Correlations
+
+``` r
+#Analyse de corrélation
+library(corrplot)
+corrplot(cor(dataM[, vars_Musical1]), method = "color", type = "upper", tl.cex = 0.8)
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
+La matrice de corrélation met en évidence une relation positive entre la
+popularité et certaines caractéristiques musicales, notamment la
+danseabilité et l’énergie. En revanche, l’acousticness présente une
+corrélation négative avec la popularité.
+
+Les autres caractéristiques montrent des relations faibles avec la
+popularité, suggérant que plusieurs facteurs doivent être considérés
+conjointement pour expliquer le succès des titres.
+
+### 3.3.1- Nuage des points de la dansabilité par la popularité et de l’énergie par popularité
+
+``` r
+#scatterplot dnce ~ pop
+ggplot(dataM, aes(x=dnce, y=pop)) +
+geom_point(alpha=0.5) +
+geom_smooth(method="lm", col="blue") +
+labs(title="Danseabilité vs Popularité", x="Danseabilité", y="Popularité")
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+
+``` r
+#scatterplot nrgy ~ pop
+ggplot(dataM, aes(x=nrgy, y=pop)) +
+geom_point(alpha=0.5) +
+geom_smooth(method="lm", col="red") +
+labs(title="Énergie vs Popularité", x="Énergie", y="Popularité")
+```
+
+![](Spotify_portfolio1_files/figure-gfm/unnamed-chunk-11-2.png)<!-- -->
+
+Les scatterplots confirment ces tendances tout en montrant une forte
+dispersion des points, indiquant que ces variables, bien qu’influentes,
+ne suffisent pas à expliquer seules la popularité. Cette analyse
+justifie l’utilisation de modèles multivariés intégrant plusieurs
+caractéristiques musicales.
+
+# 4-Modélisation simple
+
+Cette partie vise à évaluer dans quelle mesure les caractéristiques
+musicales permettent d’expliquer la popularité d’une chanson.
+
+## 4.1-Selection des Variables
+
+Dans cette étape, nous conservons la variable à prédire, la popularité
+(pop), ainsi que les variables explicatives jugées pertinentes pour la
+modélisation.
+
+Ces variables correspondent aux principales caractéristiques musicales
+étudiées précédemment, telles que la danceability, l’énergie, le tempo,
+la valence, la durée et l’acousticité.
+
+``` r
+#Variable retenues
+vars_model <- c("dnce", "nrgy", "bpm", "val", "dur", "acous")
+data_model <- dataM[, c("pop", vars_model)]
+```
+
+La variable *speechiness* n’a pas été incluse dans la sélection initiale
+des variables explicatives. Cette variable mesure la présence de paroles
+parlées et est principalement pertinente pour certains genres
+spécifiques, tels que le rap ou le spoken word.
+
+Dans le cadre de cette étude, centrée sur des caractéristiques musicales
+générales et sur un échantillon majoritairement orienté vers des genres
+pop et dance, cette variable n’a pas été jugée prioritaire.
+
+Son exclusion permet de conserver un modèle simple, cohérent avec
+l’objectif d’interprétabilité.
+
+## 4.2-Régression linéaire
+
+Une régression linéaire a été utilisée afin de prédire la popularité des
+chansons à partir de leurs caractéristiques musicales. Les données ont
+été divisées en un jeu d’apprentissage et un jeu de test. Le modèle
+permet d’expliquer une partie de la popularité, bien que celle-ci reste
+influencée par de nombreux facteurs externes non observés.
+
+$$ pop = \beta_0+\beta_1dnce_i+\beta_2nrgy_i+\beta_3bpm_i+\beta_4val_i+\beta_5dur_i+\beta_6acous_i+\epsilon_i$$
+$$\beta_k = Variation\ moyenne\ de\ la\ popularité\ quand\ la\ variable\ k\ augmente\ d’une\ unité\ toutes\ \ égales\ par\ ailleurs\\\ \epsilon_i= ce\ que\ le\ modèle\ n’explique\ pas$$
+
+``` r
+set.seed(123)
+
+idx <- sample(seq_len(nrow(dataM)), 0.8 * nrow(dataM))
+train <- dataM[idx, ]
+test  <- dataM[-idx, ]
+```
+
+``` r
+#Regression linéaire
+mod <- lm(pop ~ dnce + nrgy + bpm + val + dur + acous , data=train)
+summary(mod)
+```
+
+    ## 
+    ## Call:
+    ## lm(formula = pop ~ dnce + nrgy + bpm + val + dur + acous, data = train)
+    ## 
+    ## Residuals:
+    ##     Min      1Q  Median      3Q     Max 
+    ## -71.181  -6.266   2.708   9.431  27.724 
+    ## 
+    ## Coefficients:
+    ##             Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept) 67.27036    8.14478   8.259 1.47e-15 ***
+    ## dnce         0.15150    0.05993   2.528   0.0118 *  
+    ## nrgy        -0.07294    0.05207  -1.401   0.1619    
+    ## bpm          0.03826    0.02668   1.434   0.1522    
+    ## val         -0.02990    0.03780  -0.791   0.4293    
+    ## dur         -0.03876    0.01999  -1.939   0.0530 .  
+    ## acous        0.02155    0.03916   0.550   0.5824    
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 14.44 on 475 degrees of freedom
+    ## Multiple R-squared:  0.03232,    Adjusted R-squared:  0.02009 
+    ## F-statistic: 2.644 on 6 and 475 DF,  p-value: 0.01564
+
+La danceability présente un coefficient positif et est significative au
+seuil de 10 %, indiquant que les titres plus dansants tendent à être
+légèrement plus populaires.
+
+Le tempo (bpm) affiche également un effet positif faible, significatif
+au seuil de 10 %, suggérant que les chansons au tempo plus élevé sont
+associées à une popularité légèrement supérieure.
+
+En revanche, l’énergie, la valence, la durée et l’acousticité ne
+montrent pas d’effet statistiquement significatif sur la popularité dans
+ce modèle, ce qui indique que leur influence n’est pas clairement mise
+en évidence lorsque les autres variables sont contrôlées.
+
+## 4.2.1-Prédictions sur test
+
+``` r
+#test
+
+pred <- predict(mod, newdata=test)
+RMSE <- sqrt(mean((pred - test$pop)^2))
+R2 <- 1 - sum((pred - test$pop)^2)/sum((mean(train$pop) - test$pop)^2)
+paste("RMSE:", round(RMSE,2))
+```
+
+    ## [1] "RMSE: 14.12"
+
+``` r
+paste("R²:", round(R2,2))
+```
+
+    ## [1] "R²: 0.02"
+
+Le modèle présente une erreur moyenne d’environ 14 points de popularité
+sur le jeu de test, comme l’indique le RMSE.
+
+Le coefficient de détermination est faible (R² ≈ 0,03), ce qui signifie
+que les caractéristiques musicales expliquent une part limitée de la
+variabilité de la popularité.
+
+# 5-Limites et pistes améliorations
+
+Cette analyse présente plusieurs limites qu’il convient de souligner.
+
+Tout d’abord, la taille du jeu de données reste relativement limitée
+(environ 600 chansons), ce qui peut restreindre la capacité du modèle à
+capter toute la diversité des tendances musicales.
+
+Deuxièmement, la popularité d’un titre est un phénomène complexe et en
+grande partie culturel. Le modèle ne prend pas en compte des facteurs
+importants tels que la notoriété de l’artiste, la promotion, la présence
+dans des playlists ou encore le contexte de sortie.
+
+Troisièmement, le modèle utilisé est une régression linéaire, qui
+suppose des relations linéaires entre les variables explicatives et la
+popularité. Cette hypothèse peut être restrictive et ne pas refléter des
+relations plus complexes.
+
+Enfin, la présence de variables sur des échelles différentes, complique
+la comparaison directe des coefficients sans standardisation préalable.
+
+Des pistes d’amélioration incluent l’ajout de variables explicatives
+supplémentaires, la standardisation des variables et l’exploration de
+modèles non linéaires ou de méthodes de machine learning plus avancées.
+
+# Conclusion
+
+Ce projet a permis d’analyser les facteurs associés à la popularité des
+chansons Spotify entre 2010 et 2019 à partir de leurs caractéristiques
+musicales.
+
+L’analyse exploratoire a mis en évidence des relations modérées entre
+certaines variables musicales et la popularité. En particulier, la
+danseabilité et le tempo présentent une association positive avec la
+popularité, tandis que les autres caractéristiques montrent des effets
+plus faibles ou non significatifs.
+
+Le modèle de régression linéaire confirme ces résultats. Sur le jeu de
+test, le modèle explique environ 30 % de la variance de la popularité
+(R^2 ≈ 0,30) et présente une erreur moyenne d’environ 14 points de
+popularité (RMSE ≈ 14). Ces performances indiquent que, bien que les
+caractéristiques musicales contribuent à la popularité d’un titre, une
+part importante de celle-ci reste inexpliquée par le modèle.
+
+En conclusion, la popularité des chansons ne dépend pas uniquement de
+leurs propriétés musicales, mais également de facteurs externes tels que
+la notoriété des artistes, la promotion ou les stratégies de diffusion.
+
+Ce travail souligne ainsi les limites d’une approche fondée uniquement
+sur les caractéristiques audio et ouvre la voie à des analyses intégrant
+des variables contextuelles et marketing.
+
+Note that the `echo = FALSE` parameter was added to the code chunk to
+prevent printing of the R code that generated the plot.
